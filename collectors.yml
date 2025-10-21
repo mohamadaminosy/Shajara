@@ -49,6 +49,31 @@ jobs:
           fi
           echo "All required Telegram secrets present."
 
+      - name: Sanitize and debug SUPABASE_URL (safe)
+        shell: bash
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: |
+          # sanitize (remove literal %0A / %0a and newline/carriage returns and trim)
+          CLEAN_URL="$(echo -n "$SUPABASE_URL" | tr -d '\r\n' | sed 's/%0A//g' | sed 's/%0a//g' | sed 's/[[:space:]]*$//')"
+          export SUPABASE_URL="$CLEAN_URL"
+          export SUPABASE_ANON_KEY="$(echo -n "$SUPABASE_ANON_KEY" | tr -d '\r\n')"
+
+          # Debug: show lengths and python repr (this prints representation with escaped chars)
+          echo "DEBUG: SUPABASE_URL length = $(printf "%s" "$SUPABASE_URL" | wc -c)"
+          printf '%s' "$SUPABASE_URL" | python3 -c 'import sys; s=sys.stdin.read(); print("DEBUG: SUPABASE_URL repr:", repr(s))'
+          # print hex bytes (small, safe) so we can spot %0a or \n as bytes
+          printf '%s' "$SUPABASE_URL" | od -An -tx1 | sed 's/^/DEBUG: HEX: /'
+
+          # re-export cleaned var for downstream steps
+          echo "Sanitised SUPABASE_URL set."
+
+      - name: Show utils file used (sanity)
+        run: |
+          echo "---- utils/supabase_client.py (first 120 lines) ----"
+          sed -n '1,120p' utils/supabase_client.py || true
+
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
@@ -61,7 +86,7 @@ jobs:
 
       - name: Find and run telegram_collector.py
         env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}        # note: will be sanitized by previous step via export in same job
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           TELEGRAM_API_ID: ${{ secrets.TELEGRAM_API_ID }}
           TELEGRAM_API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
@@ -71,6 +96,10 @@ jobs:
           TG_PREFILTER: "السويداء,الساحل,اللاذقية,طرطوس,قتل,اشتباك,طائفي"
         run: |
           set -euo pipefail
+          # re-sanitize here as well to be safe (in same shell)
+          SUPABASE_URL="$(echo -n "$SUPABASE_URL" | tr -d '\r\n' | sed 's/%0A//g' | sed 's/%0a//g' | sed 's/[[:space:]]*$//')"
+          export SUPABASE_URL
+          echo "Final SUPABASE_URL length=$(printf "%s" "$SUPABASE_URL" | wc -c)"
           SCRIPT=$(find . -maxdepth 4 -type f -name "telegram_collector.py" | head -n1 || true)
           if [ -z "$SCRIPT" ]; then
             echo "::error::telegram_collector.py not found in repo (searched depth 4)."
@@ -116,6 +145,16 @@ jobs:
           fi
           echo "Supabase secrets present for Facebook job."
 
+      - name: Sanitize SUPABASE_URL (facebook job)
+        shell: bash
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: |
+          CLEAN_URL="$(echo -n "$SUPABASE_URL" | tr -d '\r\n' | sed 's/%0A//g' | sed 's/%0a//g' | sed 's/[[:space:]]*$//')"
+          export SUPABASE_URL="$CLEAN_URL"
+          echo "Sanitized SUPABASE_URL length=$(printf "%s" "$SUPABASE_URL" | wc -c)"
+
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
@@ -136,6 +175,8 @@ jobs:
           FB_COOKIES_JSON: ${{ secrets.FB_COOKIES_JSON }}
         run: |
           set -euo pipefail
+          SUPABASE_URL="$(echo -n "$SUPABASE_URL" | tr -d '\r\n' | sed 's/%0A//g' | sed 's/%0a//g' | sed 's/[[:space:]]*$//')"
+          export SUPABASE_URL
           SCRIPT=$(find . -maxdepth 4 -type f -name "facebook_collector.py" | head -n1 || true)
           if [ -z "$SCRIPT" ]; then
             echo "::error::facebook_collector.py not found in repo (searched depth 4)."
