@@ -1,0 +1,146 @@
+name: Collectors
+
+on:
+  schedule:
+    - cron: "0 0 * * *"   # daily at 00:00 UTC (every 24 hours)
+  workflow_dispatch: {}
+
+concurrency:
+  group: collectors-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  telegram:
+    name: Telegram collector
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Show repo tree (debug)
+        run: |
+          echo "PWD: $(pwd)"
+          echo "--- top-level ---"
+          ls -la
+          echo "--- all files (depth 4) ---"
+          find . -maxdepth 4 -type f -print || true
+
+      - name: Validate required secrets (Telegram)
+        shell: bash
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          TELEGRAM_API_ID: ${{ secrets.TELEGRAM_API_ID }}
+          TELEGRAM_API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
+          TELEGRAM_STRING_SESSION: ${{ secrets.TELEGRAM_STRING_SESSION }}
+        run: |
+          missing=false
+          for v in SUPABASE_URL SUPABASE_ANON_KEY TELEGRAM_API_ID TELEGRAM_API_HASH TELEGRAM_STRING_SESSION; do
+            val="$(printenv $v || true)"
+            if [ -z "$val" ]; then
+              echo "::error::$v is missing"
+              missing=true
+            fi
+          done
+          if [ "$missing" = "true" ]; then
+            echo "One or more required secrets are missing. Aborting Telegram job."
+            exit 1
+          fi
+          echo "All required Telegram secrets present."
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install deps for collectors (Telegram)
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install telethon pandas requests
+
+      - name: Find and run telegram_collector.py
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          TELEGRAM_API_ID: ${{ secrets.TELEGRAM_API_ID }}
+          TELEGRAM_API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
+          TELEGRAM_STRING_SESSION: ${{ secrets.TELEGRAM_STRING_SESSION }}
+          TG_CHANNELS: "dmski_1,akbardrwz,Druzeresistance"
+          TG_MAX_POSTS: "200"
+          TG_PREFILTER: "السويداء,الساحل,اللاذقية,طرطوس,قتل,اشتباك,طائفي"
+        run: |
+          set -euo pipefail
+          SCRIPT=$(find . -maxdepth 4 -type f -name "telegram_collector.py" | head -n1 || true)
+          if [ -z "$SCRIPT" ]; then
+            echo "::error::telegram_collector.py not found in repo (searched depth 4)."
+            exit 1
+          fi
+          echo "Found telegram_collector at: $SCRIPT"
+          echo "---- Running telegram collector ----"
+          python -u "$SCRIPT"
+
+  facebook:
+    name: Facebook collector
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Show repo tree (debug)
+        run: |
+          echo "PWD: $(pwd)"
+          echo "--- top-level ---"
+          ls -la
+          echo "--- all files (depth 4) ---"
+          find . -maxdepth 4 -type f -print || true
+
+      - name: Validate required secrets (Facebook)
+        shell: bash
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: |
+          missing=false
+          for v in SUPABASE_URL SUPABASE_ANON_KEY; do
+            val="$(printenv $v || true)"
+            if [ -z "$val" ]; then
+              echo "::error::$v is missing"
+              missing=true
+            fi
+          done
+          if [ "$missing" = "true" ]; then
+            echo "One or more required secrets are missing. Aborting Facebook job."
+            exit 1
+          fi
+          echo "Supabase secrets present for Facebook job."
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install deps for Facebook collector
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install facebook-scraper pandas requests lxml_html_clean
+
+      - name: Find and run facebook_collector.py
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          FB_PAGES: "https://www.facebook.com/Suwayda24,https://www.facebook.com/groups/zero0nine9"
+          FB_LIMIT: "200"
+          FB_USER_AGENT: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+          FB_COOKIES_JSON: ${{ secrets.FB_COOKIES_JSON }}
+        run: |
+          set -euo pipefail
+          SCRIPT=$(find . -maxdepth 4 -type f -name "facebook_collector.py" | head -n1 || true)
+          if [ -z "$SCRIPT" ]; then
+            echo "::error::facebook_collector.py not found in repo (searched depth 4)."
+            exit 1
+          fi
+          echo "Found facebook_collector at: $SCRIPT"
+          echo "---- Running facebook collector ----"
+          python -u "$SCRIPT"
